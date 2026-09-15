@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { cropStyle } from "./crop";
+import { applyImageChanges, applyTextChanges, collectChanges, findElementByText } from "./previewText";
 
 /**
  * ポータル（サイト編集）のプレビュー連動ブリッジ。**下書きサイトだけ**に載る（layout.tsx で出し分け）。
@@ -16,6 +17,13 @@ import { cropStyle } from "./crop";
  *     data-cms-img / data-cms-focus / data-cms-text の目印がある要素だけ差し替える（2026-09-13）。
  *     静的サイトなので保存→再ビルドを待たずに、写真の差し替え・トリミング・文章の変更が右のプレビューに出る。
  *     ページの再読み込みで消える一時的な上書き（本物の保存は「保存する」）。
+ *
+ *  4. ポータル→サイト: {type:"cms-preview", base, data, collection?} で**目印なし**の差し替え（2026-09-15・v0.2.0）。
+ *     base＝保存済みの内容、data＝今の入力。変わった文字列をページの文字から探して置き換え、画像は src で差し替える
+ *     （previewText.ts）。店舗・広告LPのような一覧の1件も、サイト側に目印を付けずに即時プレビューできる。
+ *     結果（構造の変更・見つからなかった件数）を {type:"cms-preview-result"} で親へ返し、ポータルが案内を出す。
+ *     collection 付き（一覧の1件）のときは、設定用の目印（data-cms-img 等の絶対パス）には当てない。
+ *     cms-highlight も目印が無ければ text（今の入力）→ alt（保存済み）の順でページの文字から探す。
  */
 const ALLOWED_ORIGINS = [
   "https://cms.temanashi.co", // 2026-09-04〜 テマナシCMS（Cloudflare Workers）
@@ -85,18 +93,51 @@ export default function CmsPreviewBridge() {
       }
     };
 
+    // 目印なし差し替え（4）の最新の内容。React の再描画で要素が作り直されたら当て直す
+    let generic: { base: unknown; data: unknown } | null = null;
+    const runGeneric = () => {
+      if (!generic) return null;
+      const ch = collectChanges(generic.base, generic.data);
+      const t = applyTextChanges(document.body, ch.texts);
+      const imgMiss = applyImageChanges(document, ch.images);
+      return {
+        structural: ch.structural,
+        changed: ch.texts.length + ch.images.length,
+        unmatched: t.unmatched.length + imgMiss.length,
+        samples: [...t.unmatched, ...imgMiss].slice(0, 3).map((p) => p[0].slice(0, 40)),
+      };
+    };
+    let moTimer: ReturnType<typeof setTimeout> | null = null;
+    const mo = new MutationObserver(() => {
+      if (!generic) return;
+      if (moTimer) clearTimeout(moTimer);
+      moTimer = setTimeout(runGeneric, 120);
+    });
+
     const onMessage = (e: MessageEvent) => {
       if (!ALLOWED_ORIGINS.includes(e.origin)) return;
-      const data = e.data as { type?: string; key?: string; path?: string; data?: unknown };
-      if (data?.type === "cms-preview") { applyPreview(data.data); return; }
-      if (data?.type !== "cms-highlight" || !(data.key || data.path)) return;
+      const data = e.data as { type?: string; key?: string; path?: string; text?: string; alt?: string; data?: unknown; base?: unknown; collection?: string };
+      if (data?.type === "cms-preview") {
+        if (!data.collection) applyPreview(data.data);
+        if (data.base !== undefined && data.base !== null) {
+          if (!generic) mo.observe(document.body, { childList: true, subtree: true });
+          generic = { base: data.base, data: data.data };
+          const result = runGeneric();
+          (e.source as Window | null)?.postMessage({ type: "cms-preview-result", ...result }, e.origin);
+        }
+        return;
+      }
+      if (data?.type !== "cms-highlight" || !(data.key || data.path || data.text)) return;
       // path（例 race.stations.2.desc）を優先し、目印が無ければ末尾の階層を削って親セクションへフォールバック
       let el: HTMLElement | null = null;
-      const segs = String(data.path || data.key).split(".");
+      const segs = data.path || data.key ? String(data.path || data.key).split(".") : [];
       while (segs.length && !el) {
         el = document.querySelector<HTMLElement>(`[data-cms="${CSS.escape(segs.join("."))}"]`);
         if (!el) segs.pop();
       }
+      // 目印の無いサイト・一覧の1件は、触っている項目の文字をページから探す（v0.2.0）
+      if (!el && data.text) el = findElementByText(document.body, data.text);
+      if (!el && data.alt) el = findElementByText(document.body, data.alt);
       if (!el) return;
       clearHighlight();
       if (clearTimer) clearTimeout(clearTimer);
@@ -172,6 +213,8 @@ export default function CmsPreviewBridge() {
       document.removeEventListener("mouseover", onOver);
       document.removeEventListener("mouseout", onOut);
       if (clearTimer) clearTimeout(clearTimer);
+      if (moTimer) clearTimeout(moTimer);
+      mo.disconnect();
       clearHighlight();
     };
   }, []);

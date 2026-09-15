@@ -49,3 +49,14 @@ import CmsPreviewBridge from "temanashi-site-kit/CmsPreviewBridge";
 
 1. ここを直してタグを打つ（`v0.1.x`）
 2. 各サイトの `package.json` のタグを上げて `npm i` → ビルド → main へ
+
+## v0.2.0（2026-09-15）目印なしのプレビュー
+
+`CmsPreviewBridge` が `{type:"cms-preview", base, data}` を受けると、保存済みの内容（base）と今の入力（data）の差分を取り、
+ページ上の文字・画像から旧い値を探して新しい値に置き換える（`src/previewText.ts`）。サイト側に `data-cms-text` 等の目印を付けなくても、
+テマナシCMSの「サイト編集」と一覧の1件（広告LP・店舗など）の入力が保存前に右のプレビューへ出る。
+
+- 項目の追加・削除・並べ替え、空欄への入力はページの構造が変わるので差し替えない（結果の `structural` でポータルが案内を出す）
+- 価格の「4,400」「円」のように要素をまたぐ文字は、片側3文字までの差分を許して当てる
+- 結果は `{type:"cms-preview-result", structural, changed, unmatched}` で親へ返す
+- 既存の目印方式（`data-cms-img` / `data-cms-focus` / `data-cms-text`）はそのまま使える（一覧の1件のときは当てない）

@@ -1,6 +1,6 @@
 {
   "name": "temanashi-site-kit",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "テマナシCMSに接続する店舗サイト（Next.js）の共通部品: 写真のトリミング（crop）、枠つき写真（CropImg）、ポータルのプレビュー連動（CmsPreviewBridge）",
   "type": "module",
   "license": "UNLICENSED",
@@ -9,7 +9,8 @@
   "exports": {
     "./crop": "./src/crop.ts",
     "./CropImg": "./src/CropImg.tsx",
-    "./CmsPreviewBridge": "./src/CmsPreviewBridge.tsx"
+    "./CmsPreviewBridge": "./src/CmsPreviewBridge.tsx",
+    "./previewText": "./src/previewText.ts"
   },
   "peerDependencies": {
     "react": ">=18"
